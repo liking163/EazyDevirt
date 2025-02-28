@@ -120,38 +120,45 @@ internal sealed class ResourceParsing : StageBase
         return true;
     }
 
-    private bool FindVMStreamMethods()
-    {
-        foreach (var type in Ctx.Module.GetAllTypes())
-        {
-            if (_resourceGetterMethod != null && _resourceInitializationMethod != null) return true;
-            foreach (var method in type.Methods.Where(m =>
-                         m is { Managed: true, IsPublic: true, IsStatic: true } &&
-                         m.Signature?.ReturnType.FullName == typeof(Stream).FullName))
-            {
-                if (_resourceGetterMethod != null && _resourceInitializationMethod != null) return true;
-                if (_resourceGetterMethod != null ||
-                    !PatternMatcher.MatchesPattern(new GetVMStreamPattern(), method)) continue;
-                
-                _resourceGetterMethod = method;
-                _resourceInitializationMethod =
-                    (SerializedMethodDefinition)method.CilMethodBody!.Instructions[13].Operand!;
-                _resourceModulusStringMethod =
-                    (SerializedMethodDefinition)method.CilMethodBody!.Instructions[12].Operand!;
-                var getVmInstanceMethod = type.Methods.First(m =>
-                    m.MetadataToken != _resourceGetterMethod.MetadataToken &&
-                    m.MetadataToken != _resourceModulusStringMethod.MetadataToken);
+ private bool FindVMStreamMethods()
+ {
+    
+     foreach (var type in Ctx.Module.GetAllTypes())
+     {
+         if (_resourceGetterMethod != null && _resourceInitializationMethod != null) return true;
+         foreach (var method in type.Methods.Where(m =>
+                      m is { Managed: true, IsPublic: true, IsStatic: true } &&
+                      m.Signature?.ReturnType.FullName == typeof(Stream).FullName)
+             )
+         {              
+              if (_resourceGetterMethod != null && _resourceInitializationMethod != null) return true;
+             if (_resourceGetterMethod != null ||
+                 !PatternMatcher.MatchesPattern(new GetVMStreamPattern(), method)) continue;
+             
+             _resourceGetterMethod = method;
+             _resourceInitializationMethod =
+                 (SerializedMethodDefinition)method.CilMethodBody!.Instructions[13].Operand!;
+             _resourceModulusStringMethod =
+                 (SerializedMethodDefinition)method.CilMethodBody!.Instructions[12].Operand!;
+             // 处理多个匹配的方法
+             if (_resourceGetterMethod == null || _resourceModulusStringMethod == null)
+             {
+                 throw new InvalidOperationException("Resource getter or modulus string method is not initialized.");
+             }
+             var getVmInstanceMethod = type.Methods
+                 .Where(m => m.MetadataToken != _resourceGetterMethod.MetadataToken &&m.MetadataToken != _resourceModulusStringMethod.MetadataToken) .ToList();
+             // 处理未找到方法的情况
+             if (getVmInstanceMethod.Count == 0)
+             {
+                 throw new InvalidOperationException("Failed to get VM Declaring type!");
+             }              
+             var getVmInstanceMethod2 = getVmInstanceMethod .FirstOrDefault(m => m.Signature?.ReturnsValue == true);
+             Ctx.VMDeclaringType = (TypeDefinition)getVmInstanceMethod2.Signature.ReturnType.ToTypeDefOrRef();
+         }
 
-                if (!getVmInstanceMethod.Signature!.ReturnsValue)
-                    throw new Exception("Failed to get VM Declaring type!");
-
-                Ctx.VMDeclaringType = (TypeDefinition)getVmInstanceMethod.Signature.ReturnType.ToTypeDefOrRef();
-            }
-
-        }
-
-        return false;
-    }
+     }
+             return false;
+ }
 
     public ResourceParsing(DevirtualizationContext ctx) : base(ctx)
     {
